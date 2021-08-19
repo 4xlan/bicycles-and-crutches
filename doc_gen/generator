@@ -1,0 +1,114 @@
+#!/usr/bin/python3
+#-*- coding=utf-8 -*-
+
+from mailmerge import MailMerge
+from csv import DictReader
+
+
+def csv_read(path, d):
+    '''
+    '''
+    
+    return DictReader(open(path, 'r'), delimiter=d)
+
+def passport_prepare(pass_str, string_limit):
+    '''
+    '''
+
+    strlim = int(string_limit)
+
+    passport = ['','','']
+
+    current_id = 0
+
+    # TODO: Fix that -
+    if len(pass_str) > strlim:
+        temp1 = pass_str[:strlim]
+        l_pass = temp1.rfind(u' ')
+        passport[0] = pass_str[:l_pass]
+        pass_str = pass_str[l_pass:]
+
+        if len(pass_str) > strlim:
+            temp2 = pass_str[:strlim]
+            l_pass = temp2.rfind(u' ')
+            passport[1] = pass_str[:l_pass]
+            pass_str = pass_str[l_pass:]
+
+            if len(pass_str) > 0:
+                passport[2] = pass_str
+        else:
+            passport[1] = pass_str
+    else:
+        passport[0] = pass_str
+    
+    return passport
+
+def fill_form(user, template, string_limit, out_path):
+    '''
+    '''
+
+    passport = passport_prepare(user['pass_seria']+' '+user['pass_number']+', выдан '+user['pass_wh_date']+' '+user['pass_wh'], string_limit)
+
+    with MailMerge(template) as document:
+        document.merge(
+            FullName=user['secondname']+' '+user['firstname']+' '+user['thirdname'],
+            SurName=user['secondname'],
+            GivenName=user['firstname']+' '+user['thirdname'] if user['thirdname'] != '' else user['firstname'],
+            Title=user['title'],
+            OrgUnit=user['orgunit'],
+            Email=user['email'],
+            SNILS=user['snils'],
+            ShortName=user['secondname']+' '+user['firstname'][0]+'.'+user['thirdname'][0]+'.' if user['thirdname'] != '' else user['secondname']+' '+user['firstname'][0]+'.',
+            Passport_1=passport[0],
+            Passport_2=passport[1],
+            Passport_3=passport[2]
+            )
+
+        document.write(out_path+user['email'][:user['email'].find('@')]+".docx")
+        
+
+
+def clicker(users, template, string_limit, out_path):
+    '''
+    '''
+    
+    for user in users:
+        fill_form(user, template, string_limit, out_path)
+        print(user['email'][:user['email'].find('@')]+' done.')
+
+
+def launcher():
+    
+    #####
+    # Settings
+    #####
+    # Site1
+    input_file_s1 = './src/in_s1.csv'
+    template_s1 = './templates/form_s1.docx'
+    out_path_s1 = './output/s1/'
+    # Site2
+    input_file_s2 = './src/in_s2.csv'
+    template_s2_op1 = './templates/form_s2_op1.docx'
+    template_s2_op2 = './templates/form_s2_op2.docx'
+    out_path_s2 = './output/s2_op1/'
+    out_path_s2 = './output/s2_op2/'
+    # Site3
+    input_file_s3 = './src/in_s3.csv'
+    template_s3 = './templates/form_s3.docx'
+    out_path_s3 = './output/s3/'
+    # CSV delimiter
+    dlm = ';'
+    # Passport string symbol limit on a row
+    string_limit = 98
+    #####
+    # Run
+    ####
+    
+    clicker(csv_read(input_file_s2, dlm), template_s2_op1, string_limit, out_path_s2_op1)
+    clicker(csv_read(input_file_s2, dlm), template_s2_op2, string_limit, out_path_s2_op2)
+    clicker(csv_read(input_file_s1, dlm), template_s1, string_limit, out_path_s1)
+    clicker(csv_read(input_file_s3, dlm), template_s3, string_limit, out_path_s3)
+
+
+if __name__ == '__main__':
+    launcher()

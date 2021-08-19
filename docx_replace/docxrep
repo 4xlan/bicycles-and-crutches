@@ -1,0 +1,16 @@
+#!/bin/bash
+
+FILE=$1
+RETPATH=`pwd`
+rm -rf $RETPATH/file_docx    
+mkdir $RETPATH/file_docx
+cd $RETPATH/file_docx
+mkdir tmp
+unzip -q $FILE -d tmp
+cd tmp/word
+sed -i "s/${2}/${3}/" document.xml
+cd ..
+zip -q -r ../${FILE} *
+#cp $RETPATH/file_docx/${FILE} ${RETPATH}
+cd $RETPATH
+rm -rf $RETPATH/file_docx 

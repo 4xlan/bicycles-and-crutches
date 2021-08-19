@@ -1,0 +1,31 @@
+#!/usr/bin/python
+#-*- coding: utf-8 -*-
+
+import os, sys, time
+ 
+def catalog_generate(path):
+    os.system('find '+path+' -name "* *" -type d | rename \'s/ /_/g\'')
+    os.system('fine '+path+' -name "* *" -type f | rename \'s/ /_/g\'')
+    file_list = []
+    for i in os.walk(path):
+        for docx in os.listdir(i[0]):
+            if docx.endswith('.docx'):
+                docx = docx.replace(' ','\ ')
+                file_list.append('../'+i[0]+'/'+docx)
+    return file_list
+
+def replace_text(src, res, files):
+    for doc in files:
+        print('INWRK: '+doc)
+        os.system('./docxrep '+'\''+doc+'\''+' '+src+' '+res)
+        time.sleep(1)
+
+if __name__ == "__main__":
+
+    path = "files"
+    if len(sys.argv) < 3:
+        print('Недостаточно аргументов. Необходимо передать: Заменяемая_строка Строка_для_замены')
+        for i in catalog_generate(path):
+            print(i)
+    else:
+        replace_text(sys.argv[1], sys.argv[2], catalog_generate("./files/"))

@@ -1,0 +1,204 @@
+#!/usr/bin/python3
+
+import os, re, json
+
+
+def get_trigger_data(path):
+
+    trig_file = []
+
+    with open(path, encoding='UTF-8') as file:
+        for line in file:
+            trig_file.append(line[:line.find('/')])
+
+    return trig_file
+
+
+def get_username(input_st):
+    
+    # Ищем теперь строго тег, т.к. не всегда с доменом есть нашим наименования
+    tag = re.search(r'\<h1\>', input_st)
+    if tag is not None:
+        return input_st[tag.end():input_st.find(' ')]
+    else:
+        return None
+
+
+def get_http_link(input_st):
+
+    link_anchor = re.search(r'href=\"', input_st)
+    link = None
+    link_stop = None
+
+    if link_anchor is not None:
+        link = input_st[link_anchor.end():]
+        link = link[:link.find('"')]
+        link_stop = link_anchor.end()
+
+    return link, link_stop
+
+
+def get_all_links(input_st):
+
+    link_list = []
+    
+    while len(input_st) != 0:
+        link, link_stop = get_http_link(input_st)
+        if link is not None:
+            link_list.append(link)
+            input_st = input_st[link_stop:]
+        else:
+            break
+
+    return link_list
+
+
+def get_file_list(l_path):
+
+    html_lists = []
+
+    for dir_rep in list(os.walk(l_path)):
+        for fl in dir_rep[2]:
+            if re.search(r'index[A-Za-z\ \(\)0-9]*\.htm',fl) is not None:
+                html_lists.append(dir_rep[0]+"/"+fl)
+
+    return html_lists
+
+
+def get_from_struct(username, struct):
+
+    temp_username = 'N/A'
+    temp_dept = 'N/A'
+
+    for user in struct:
+        if username.upper() == user['login'].upper():
+            temp_username = user['name']
+            temp_dept = user['dept']
+
+    return temp_username, temp_dept
+
+
+def get_info_from_file(html_file, struct):
+
+    link_set = []
+    username = None
+    with open(html_file, encoding='UTF-8') as fl:
+        for line in fl:
+            if username is None:
+                username = get_username(line)
+            
+            links = get_all_links(line)
+            if len(links) != 0:
+                for link in links:
+                    link_set.append(link)
+
+    user_fio = 'N/A'
+    user_dept = 'N/A'
+    
+    if username is None:
+        username = html_file
+    else:
+        user_fio, user_dept = get_from_struct(username, struct)
+    
+    user_set = {'user_login': username, 'links': link_set, 'user_fio': user_fio, 'user_dept': user_dept}
+
+    return user_set
+
+
+def get_bad_links(username, user_links_list, user_fio, user_dept, triggers):
+
+    bad_links = []
+
+    for link in user_links_list:
+        for trigger in triggers:
+            if link.find(trigger) != -1:
+                bad_links.append({'user_login': username, 'link': link, 'user_fio': user_fio, 'user_dept': user_dept})
+
+    if len(bad_links) == 0:
+        return None
+    else:
+        return bad_links
+
+
+def get_struct_info(service_path):
+
+    logsup = []
+    struct = ''
+    with open (service_path, 'r') as struct_file:
+        for line in struct_file:
+            struct += line # Ахтунг! Тут можно обосраца
+
+    structure = json.loads(struct)
+    
+    for element in structure['ФизическиеЛица']:
+
+        fio = ''
+        login = ''
+        dept = ''
+        
+        if element['ФизическоеЛицо']['Фамилия'] != '': fio += element['ФизическоеЛицо']['Фамилия']
+        if element['ФизическоеЛицо']['Имя'] != '': fio += ' '+element['ФизическоеЛицо']['Имя']
+        if element['ФизическоеЛицо']['Отчество'] != '': fio += ' '+element['ФизическоеЛицо']['Отчество']
+
+        for d_depts in element['СписокКадровыхПозиций']:
+            if d_depts['ОсновноеМестоРаботы'] == True:
+                dept = d_depts['ПодразделениеНаименование']
+
+        login = element['Пользователь']['ЛогинAD'].replace('\\\\', '\\')[1:]
+
+        logsup.append({'name': fio, 'login': login, 'dept': dept})
+
+    return logsup;
+
+
+def csv_out(bad_usr_base, out_path):
+
+    with open(out_path, 'w', encoding='UTF-8') as outfile:
+        for lines in bad_usr_base:  # Здесь присутствует небольшой костыль в виде списка в списке, но так проще отдавать
+            for line in lines:      # в csv
+                outfile.write(
+                        line['user_dept']+';'+\
+                        line['user_fio']+';'+\
+                        line['user_login']+';'+\
+                        line['link']+'\n')
+
+
+def start_pce(path_html, path_trigger, path_csv):
+
+    print('='*20)
+    print('*'*2+' '*3+'Запускаемся'+' '*3+'*'*2)
+    print('='*20)
+    print('[1/6] Собираем перечень файлов для обработки')
+    file_list = get_file_list(path_html)
+    print('[2/6] Собираем информацию о пользователях')
+    user_list = get_struct_info(config_path_service)
+
+    usr_base = []
+    bad_usr_base = []
+    print('[3/6] Собираем все ссылки из файлов')
+    for current_file in file_list:
+        usr_base.append(get_info_from_file(current_file, user_list))
+    print('[4/6] Грузим список плохих сайтов')
+    trg = get_trigger_data(path_trigger)
+    print('[5/6] Выделяем пользователей с плохими сайтами')
+    for user in usr_base:
+        usr_bad_links_list = get_bad_links(user['user_login'], user['links'], user['user_fio'], user['user_dept'], trg)
+        if usr_bad_links_list is not None:
+            bad_usr_base.append(usr_bad_links_list)
+    print('[6/6] Выгружаем в файл')
+    csv_out(bad_usr_base, path_csv)
+    print('='*20)
+    print()
+    print('На этом все.\nЖелаю приятного дня.')
+    print()
+    print('='*20)
+
+
+if __name__ == "__main__":
+
+    config_path_html = "./input/data"
+    config_path_trigger = "./trigger_ph.txt"
+    config_path_csv_out = "./output/bad_links.csv"
+    config_path_service = "./jservice.json"
+    
+    start_pce(config_path_html, config_path_trigger, config_path_csv_out)

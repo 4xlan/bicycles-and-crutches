@@ -1,0 +1,193 @@
+#!/usr/bin/python3
+#-*- coding: utf-8 -*-
+
+import requests, json, os, re, random, postgresql, time
+
+
+def connect_to_db():
+	'''
+	Готовим БД, получаем список документов
+	'''
+	print('BFU INF: Запрашиваем статус из БД')
+	database = postgresql.open('(REMOVED)')
+	return database.query("(REMOVED)")
+
+
+def catalog_generate():
+	'''
+	Собирает информацию об имеющихся сканах, первично проставляет вес
+	Вообще можно решить тем, чтобы scan_path сделать отдельным листом с весами и не дублировать ШК для каждого пути, но мне пока лень, в след. реализации можно запилить наверн
+	'''
+
+	print('BFU INF: Собираем все файлы из всех scan_barcode')
+	barcode_list = []
+	scan_id = 1
+	for i in os.walk('./test_cat/'):
+		if i[0].find('barcode') != -1:
+			for scan in os.listdir(i[0]):
+				barcode_list.append(
+					{
+						'scan_id': scan_id,
+						'scan_path': i[0], 
+						'scan_name': scan,
+						'scan_barcode': None, # Сразу не ставим, т.к. проверим от корректности наименования сначала, потом только в цикле намутим
+						'is_archived': True if i[0].find('Archive') != -1 else False,
+						'is_corr_shkud': True if (
+							re.fullmatch(r"^[0-9]{12}\.pdf", scan) 
+							or 
+							re.fullmatch(r"^[0-9]{12}_[0-9]{3}\.pdf", scan)
+							) else False,
+						'is_alrd_loaded': False,
+					}
+				)
+				scan_id += 1
+
+	return barcode_list
+
+
+def shk_analysis(scan_list, stat_list):
+	'''
+	Функция, первично анализирующая все сканы
+	'''
+	print('BFU INF: Проверяем статус выгрузки документа и наличие дублей (может занять много времени)')
+	temp_num = len(scan_list)
+	for current_scan in scan_list:
+		print('>>> CHK SCN: '+str(current_scan['scan_id'])+'/'+str(temp_num))
+		# Проверяем на корректность ШК текущий проверяемый файл и был ли он проверен на факт выгрузки	
+		if current_scan['is_corr_shkud'] is True and current_scan['is_alrd_loaded'] is False:
+			# Проставляем ШК, все равно потом понадобится
+			current_scan['scan_barcode'] = re.search(r"^[0-9]{12}", current_scan['scan_name']).group()
+			# Проверяем статус выгрузки
+			for item in stat_list:
+				if item[0] == current_scan['scan_barcode']:
+					if item[1] == "Архив":
+						current_scan['is_alrd_loaded'] = True
+						current_scan['is_archived'] = True
+					elif item[1] != "Оригинал у контрагента":
+						current_scan['is_alrd_loaded'] = True
+					else:
+						current_scan['is_alrd_loaded'] = False
+			# И продолжаем искать дубли, чтобы сразу проставить всем таким документам статус отправки и отметку о дублировании
+			for other_scan in scan_list:
+				if current_scan['scan_barcode'] == other_scan['scan_barcode'] and current_scan['scan_id'] != other_scan['scan_id']:
+						other_scan['is_alrd_loaded'] = True # Чтобы даже если не выгружен - мы на них дальше не смотрели
+		else:
+			pass
+		time.sleep(1)
+
+	return scan_list
+
+
+def prepare_catalogs(path):
+	'''
+	Подготавливает каталоги для работы
+	'''
+
+	print('BFU INF: Готовим каталоги для переноса')
+	paths = []
+
+	paths.append({'type': 'good', 'catname': '/ready_to_upload', 'path': ''})
+	paths.append({'type': 'bads', 'catname': '/incorrect_shkud', 'path': ''})
+	paths.append({'type': 'usls', 'catname': '/useless_doubles', 'path': ''})
+	paths.append({'type': 'agood', 'catname': '/arch_ready_to_upload', 'path': ''})
+	paths.append({'type': 'abads', 'catname': '/arch_incorrect_shkud', 'path': ''})
+	paths.append({'type': 'ausls', 'catname': '/arch_useless_doubles', 'path': ''})
+
+	current_set = os.listdir(path)
+	
+	for catalog in paths:
+		if catalog['catname'][1:] not in current_set: ##### FIX (убрать нужно / из наименования)
+			os.system('mkdir '+path+catalog['catname'])
+		else:
+			print('>>> CAT CRT: Каталог '+catalog['catname']+' уже существует, пропускаем')
+		catalog['path'] = path+catalog['catname']
+		
+	return paths
+
+
+def get_path(ctype, paths):
+	'''
+	Отдает путь по ID
+	Переделать когда-нибудь
+	'''
+
+	for catalog in paths:
+		if catalog['type'] == ctype:
+			return catalog['path']
+
+
+def move_file(filepath, catpath):
+	'''
+	Переносит файл в соотв. каталог
+	'''
+
+	os.system('mv '+filepath+' '+catpath)
+	return (filepath+';moved to;'+catpath)
+
+def add_to_log(text):
+	'''
+	Временно костылим лог
+	'''
+
+	os.system("echo \""+text+"\" >> log.txt")
+
+
+def sort_docs():
+	'''
+	Раскидывает сканы по каталогам
+	'''
+	
+	cat_list = prepare_catalogs('./test_cat')
+	scan_list = shk_analysis(catalog_generate(), connect_to_db())
+
+	# Вот этот - с двойными циклами нужен лишь для того, чтобы уберечься от дублирования сканов. Вообще это надо переделать -.
+	# Сначала обрабатываем только архивные и с корректными ШК
+	print('BFU INF: Работаем с документами архива')
+
+	for current_scan in scan_list:
+
+		if (current_scan['is_alrd_loaded'] is False) and (current_scan['is_corr_shkud'] is True) and (current_scan['is_archived'] is True):
+			t1 = move_file(current_scan['scan_path']+'/'+current_scan['scan_name'],get_path('agood', cat_list))
+			current_scan['is_alrd_loaded'] = True
+			add_to_log(t1)
+			for other_scan in scan_list:
+				if other_scan['scan_barcode'] == current_scan['scan_barcode'] and other_scan['scan_id'] != current_scan['scan_id'] and other_scan['is_alrd_loaded'] is False:
+					other_scan['is_alrd_loaded'] = True
+					t2 = move_file(other_scan['scan_path']+'/'+other_scan['scan_name'], get_path('ausls' if other_scan['is_archived'] is True else 'usls', cat_list))
+					add_to_log(t2)
+
+	# Дальше проходим по оставшимся и невыгруженным, с корректными ШК
+	print('BFU INF: Работаем с остальными документами')
+
+	for current_scan in scan_list:
+
+		if (current_scan['is_alrd_loaded'] is False) and (current_scan['is_corr_shkud']):
+			t1 = move_file(current_scan['scan_path']+'/'+current_scan['scan_name'],get_path('good', cat_list))
+			current_scan['is_alrd_loaded'] = True
+			add_to_log(t1)
+			for other_scan in scan_list:
+				if other_scan['scan_barcode'] == current_scan['scan_barcode'] and other_scan['scan_id'] != current_scan['scan_id'] and other_scan['is_alrd_loaded'] is not True:
+					other_scan['is_alrd_loaded'] = True
+					t2 = move_file(
+					other_scan['scan_path']+'/'+other_scan['scan_name'],get_path('ausls' if other_scan['is_archived'] is True else 'usls', cat_list))
+					add_to_log(t2)
+
+	# Прибираемся
+	print('BFU INF: Переносим остальные файлы')
+
+	for current_scan in scan_list:
+		if current_scan['is_corr_shkud'] is False:
+			t = move_file(current_scan['scan_path']+'/'+current_scan['scan_name'],get_path('abads' if current_scan['is_archived'] is True else 'bads', cat_list))
+			add_to_log(t)
+
+	return scan_list
+
+
+if __name__ == "__main__":
+
+	print('BFU INF: Стартуем')
+	print('BFU INF: Готовимся к сортировке')	
+	#sort_docs()
+	for i in connect_to_db():
+		print(i[0], i[1])
+	print('BFU INF: Вроде все, проверяй')

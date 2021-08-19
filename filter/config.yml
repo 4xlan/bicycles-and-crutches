@@ -1,0 +1,93 @@
+---
+#
+# > General
+#
+current_version_fw: "1.2.3" #   Set version, that you don't want to see in the loadout
+limit_per_uid: 9999 #   Device limit per 1 user
+csv_delimiter: ";" #   Delimiter for CSV, common for all files
+prefix: "START" #   Prefix for file for update script
+vendor: "NAME" #   Vendor of devices (in case when you might have another vendors in loadout).
+#                     Case insensitive. Honestly, there is maybe any uniq word in UserAgent for all devices, which we want to update. 
+#                     Be advised: this variable also will be used in output filenames.
+#
+# < ===
+#
+# > Catalog cfg
+#
+input_cat: "input"
+output_cat: "output" # If output catalog doesn't exist - it will be created.
+#   If you want to specify a catalog other than where the script is located - set to "False"
+input_near_script: True
+output_near_script: True
+#
+# < ===
+#
+# > Input files list
+#   [!] Only one type per entry. If you want all types - double the file and change type field. 
+#   [!] All files must be exist.
+#   [!] All files must have header.
+#
+#   Location: Number of location
+#   Name: filename, without path. We assume, that you already have putted in all input files in "input_cat"
+#   Type: Set the distrubution type for each file. Script will use entries only with that type.
+#
+files:
+  - location: 1
+    name: "1.csv"
+    type: "DIST_TYPE1"
+  - location: 2
+    name: "2.csv"
+    type: "DIST_TYPE2"
+  - location: 13
+    name: "13.csv"
+    type: "DIST_TYPE1"
+  - location: 14
+    name: "14.csv"
+    type: "DIST_TYPE2"
+#
+# < ===
+#
+# > Input file mapping list
+#   [!] Be careful with name field's - they are hardcoded in script.
+#   Case sensitive.
+#
+#   Name: ID for recognizing in script.
+#   Field_Name: Fill that field according to header in loadout.
+#
+#
+mapping:
+ - name: "DL" #  Data line number
+   field_name: "Line_Phone_Number"
+ - name: "UID" #  User ID
+   field_name: "UserID"
+ - name: "FW" #  UserAgent with firmware
+   field_name: "User_Agent"
+ - name: "DT" #  Distribution type
+   field_name: "Distribution_Type"
+#
+# < ===
+#
+# > Exclusions list
+#   [!] All exclusions will be checked for all files.
+#   Leave just "exclusions_list: " if you don't have any exclusions.
+#   Otherwise use array:
+#
+#   exclusions_list:
+#    - "012345"
+#    - "678910"
+#
+exclusions_list:
+#
+# < ===
+#
+# > Limits set
+#
+limits:
+ - type: "DIST_TYPE1"
+   value: 10000
+   is_uniq_id_list_needed: True
+ - type: "DIST_TYPE2"
+   value: 20000
+   is_uniq_id_list_needed: False
+#
+# < ===
